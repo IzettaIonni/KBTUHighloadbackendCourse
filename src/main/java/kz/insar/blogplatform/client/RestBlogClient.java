@@ -16,15 +16,11 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 
 /**
- * REST/JSON client on java.net.http.HttpClient. HTTP/1.1 with keep-alive (the client pools connections).
+ * REST/JSON client on java.net.http.HttpClient over HTTP/2: requests are multiplexed on one connection.
  */
 public class RestBlogClient implements BlogClient {
-
-    private static final String USER_AGENT = "Java-http-client/" + System.getProperty("java.version");
 
     private final String baseUrl;
 
@@ -49,7 +45,7 @@ public class RestBlogClient implements BlogClient {
 
     public RestBlogClient(String baseUrl) {
         this(baseUrl, HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
+                .version(HttpClient.Version.HTTP_2)
                 .connectTimeout(ClientTimeouts.CONNECT)
                 .build(), new RetryExecutor());
     }
@@ -106,7 +102,7 @@ public class RestBlogClient implements BlogClient {
 
     @Override
     public void close() {
-        // keep-alive connections belong to the HttpClient, which may be shared between clients
+        // the connection belongs to the HttpClient, which may be shared between clients
     }
 
     private HttpRequest.Builder newRequest(String path, Duration timeout) {
@@ -135,8 +131,7 @@ public class RestBlogClient implements BlogClient {
             Thread.currentThread().interrupt();
             throw new BlogClientConnectionException("interrupted", e);
         }
-        traffic.addBytes(utf8Length(requestBody) + utf8Length(response.body()),
-                requestHeadersSize(request, requestBody) + responseHeadersSize(response));
+        traffic.addBodyBytes(utf8Length(requestBody) + utf8Length(response.body()));
 
         int status = response.statusCode();
         if (status >= 200 && status < 300) {
@@ -178,37 +173,5 @@ public class RestBlogClient implements BlogClient {
 
     private static long utf8Length(String value) {
         return value.getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    /**
-     * Estimate: request line + headers we set + the ones HttpClient adds itself (Host, User-Agent, Content-Length).
-     */
-    private static long requestHeadersSize(HttpRequest request, String body) {
-        var uri = request.uri();
-        var target = uri.getRawPath() + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
-        long size = (request.method() + " " + target + " HTTP/1.1\r\n").length();
-        size += ("Host: " + uri.getHost() + ":" + uri.getPort() + "\r\n").length();
-        size += ("User-Agent: " + USER_AGENT + "\r\n").length();
-        if (!request.method().equals("GET")) {
-            size += ("Content-Length: " + utf8Length(body) + "\r\n").length();
-        }
-        size += headersSize(request.headers().map());
-        return size + 2;
-    }
-
-    private static long responseHeadersSize(HttpResponse<String> response) {
-        long size = ("HTTP/1.1 " + response.statusCode() + " \r\n").length();
-        size += headersSize(response.headers().map());
-        return size + 2;
-    }
-
-    private static long headersSize(Map<String, List<String>> headers) {
-        long size = 0;
-        for (var header : headers.entrySet()) {
-            for (String value : header.getValue()) {
-                size += header.getKey().length() + 2 + value.length() + 2;
-            }
-        }
-        return size;
     }
 }
