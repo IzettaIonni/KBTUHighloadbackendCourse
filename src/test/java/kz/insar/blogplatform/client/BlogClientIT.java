@@ -7,9 +7,8 @@ import kz.insar.blogplatform.helpers.BlogPlatformServiceHelper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -28,14 +27,11 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * The same scenarios for both protocols: idempotency, retries, timeouts and pagination through the real clients.
+ * Idempotency, retries, timeouts and pagination through the real REST client.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestMethodOrder(MethodOrderer.Random.class)
 public class BlogClientIT {
-
-    static final String REST = "rest";
-    static final String WS = "ws";
 
     @LocalServerPort
     private int port;
@@ -58,10 +54,8 @@ public class BlogClientIT {
         blogPlatformServiceHelper.cleanUp();
     }
 
-    private BlogClient client(String protocol) {
-        BlogClient client = REST.equals(protocol)
-                ? new RestBlogClient("http://localhost:" + port)
-                : new WsBlogClient("ws://localhost:" + port + "/ws");
+    private BlogClient client() {
+        BlogClient client = new RestBlogClient("http://localhost:" + port);
         clients.add(client);
         return client;
     }
@@ -73,10 +67,9 @@ public class BlogClientIT {
 
     // 1. idempotency
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testCreatePost_ShouldReturnSavedPostForSameKey(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testCreatePost_ShouldReturnSavedPostForSameKey() {
+        var client = client();
 
         var first = client.createPost("u1", "k1", "hello");
         var second = client.createPost("u1", "k1", "hello");
@@ -85,10 +78,9 @@ public class BlogClientIT {
         assertEquals(1, blogPlatformServiceHelper.countPosts());
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testCreatePost_ShouldFailIfKeyIsReusedWithOtherBody(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testCreatePost_ShouldFailIfKeyIsReusedWithOtherBody() {
+        var client = client();
         client.createPost("u1", "k1", "hello");
 
         var e = assertThrows(BlogClientRequestException.class, () -> client.createPost("u1", "k1", "other text"));
@@ -99,16 +91,15 @@ public class BlogClientIT {
 
     // 2. concurrent requests with one key
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testCreatePost_ShouldCreateOnePostFor20ThreadsWithOneKey(String protocol) throws Exception {
-        //given: every thread has its own client (own connection), so the requests really race on the server
+    @Test
+    void testCreatePost_ShouldCreateOnePostFor20ThreadsWithOneKey() throws Exception {
+        //given: every thread has its own client, so the requests really race on the server
         int threads = 20;
         var start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(threads);
         List<Future<PostDTO>> results = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
-            var client = client(protocol);
+            var client = client();
             results.add(executor.submit(() -> {
                 start.await();
                 return client.createPost("u1", "k1", "hello");
@@ -128,10 +119,9 @@ public class BlogClientIT {
 
     // 3. lost response -> retry -> no duplicate
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testCreatePost_ShouldNotDuplicateWhenResponseIsLost(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testCreatePost_ShouldNotDuplicateWhenResponseIsLost() {
+        var client = client();
         faultInjector.dropNextResponses(1);
 
         var post = client.createPost("u1", "k1", "hello");
@@ -141,10 +131,9 @@ public class BlogClientIT {
         awaitServerRequests(2);
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testCreatePost_ShouldNotRetryWithoutKey(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testCreatePost_ShouldNotRetryWithoutKey() {
+        var client = client();
         faultInjector.dropNextResponses(1);
 
         assertThrows(BlogClientTimeoutException.class, () -> client.createPost("u1", null, "hello"));
@@ -154,10 +143,9 @@ public class BlogClientIT {
         awaitServerRequests(1);
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testLikePost_ShouldBeRetriedAndCountedOnce(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testLikePost_ShouldBeRetriedAndCountedOnce() {
+        var client = client();
         var post = blogPlatformServiceHelper.createRandomPost();
         faultInjector.dropNextResponses(1);
 
@@ -169,10 +157,9 @@ public class BlogClientIT {
 
     // 4. retry after unavailable; 4xx is not retried
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testGetPost_ShouldSucceedAfterUnavailable(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testGetPost_ShouldSucceedAfterUnavailable() {
+        var client = client();
         var post = blogPlatformServiceHelper.createRandomPost();
         faultInjector.failNextRequests(2);
 
@@ -182,10 +169,9 @@ public class BlogClientIT {
         assertEquals(3, faultInjector.getRequestCount());
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testGetPost_ShouldGiveUpAfterThreeAttempts(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testGetPost_ShouldGiveUpAfterThreeAttempts() {
+        var client = client();
         var post = blogPlatformServiceHelper.createRandomPost();
         faultInjector.failNextRequests(RetryExecutor.MAX_ATTEMPTS);
 
@@ -194,10 +180,9 @@ public class BlogClientIT {
         assertEquals(RetryExecutor.MAX_ATTEMPTS, faultInjector.getRequestCount());
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testGetPost_ShouldNotRetryNotFound(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testGetPost_ShouldNotRetryNotFound() {
+        var client = client();
 
         var e = assertThrows(BlogClientRequestException.class, () -> client.getPost(999999));
 
@@ -205,10 +190,9 @@ public class BlogClientIT {
         assertEquals(1, faultInjector.getRequestCount());
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testCreateComment_ShouldNotRetryValidationError(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testCreateComment_ShouldNotRetryValidationError() {
+        var client = client();
         var post = blogPlatformServiceHelper.createRandomPost();
 
         var e = assertThrows(BlogClientRequestException.class,
@@ -220,10 +204,9 @@ public class BlogClientIT {
 
     // 5. timeout on a slow server
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testGetPost_ShouldTimeOutOnSlowServer(String protocol) {
-        var client = client(protocol);
+    @Test
+    void testGetPost_ShouldTimeOutOnSlowServer() {
+        var client = client();
         var post = blogPlatformServiceHelper.createRandomPost();
         faultInjector.setExtraDelayMillis(ClientTimeouts.READ.toMillis() * 2);
 
@@ -239,11 +222,10 @@ public class BlogClientIT {
 
     // 6. pagination
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {REST, WS})
-    void testListPosts_ShouldTraverseAllPostsWithoutDuplicatesAndGaps(String protocol) {
+    @Test
+    void testListPosts_ShouldTraverseAllPostsWithoutDuplicatesAndGaps() {
         //given
-        var client = client(protocol);
+        var client = client();
         var created = blogPlatformServiceHelper.createRandomPosts(45);
         //when
         List<Long> seen = new ArrayList<>();

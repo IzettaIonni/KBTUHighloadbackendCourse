@@ -4,7 +4,6 @@ import kz.insar.blogplatform.common.CurrentInstantSupplier;
 import kz.insar.blogplatform.common.RequestHasher;
 import kz.insar.blogplatform.converters.EntityConverter;
 import kz.insar.blogplatform.domain.*;
-import kz.insar.blogplatform.domain.events.CommentCreatedEvent;
 import kz.insar.blogplatform.domain.exceptions.InvalidDataException;
 import kz.insar.blogplatform.domain.exceptions.ObjectNotFoundException;
 import kz.insar.blogplatform.repositories.CommentRepository;
@@ -14,7 +13,6 @@ import kz.insar.blogplatform.repositories.entities.PostEntity;
 import kz.insar.blogplatform.services.IdempotencyService;
 import kz.insar.blogplatform.services.PostService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
@@ -34,18 +32,15 @@ public class PostServiceImpl implements PostService {
 
     private final IdempotencyService idempotencyService;
 
-    private final ApplicationEventPublisher eventPublisher;
-
     private final EntityConverter converter;
 
     private final Supplier<Instant> currentTime;
 
     public PostServiceImpl(PostRepository postRepository, CommentRepository commentRepository,
                            LikeRepository likeRepository, IdempotencyService idempotencyService,
-                           ApplicationEventPublisher eventPublisher, EntityConverter converter,
-                           Supplier<Instant> currentTime) {
+                           EntityConverter converter, Supplier<Instant> currentTime) {
         if (postRepository == null || commentRepository == null || likeRepository == null
-                || idempotencyService == null || eventPublisher == null || converter == null
+                || idempotencyService == null || converter == null
                 || currentTime == null) {
             throw new NullPointerException();
         }
@@ -53,16 +48,14 @@ public class PostServiceImpl implements PostService {
         this.commentRepository = commentRepository;
         this.likeRepository = likeRepository;
         this.idempotencyService = idempotencyService;
-        this.eventPublisher = eventPublisher;
         this.converter = converter;
         this.currentTime = currentTime;
     }
 
     @Autowired
     public PostServiceImpl(PostRepository postRepository, CommentRepository commentRepository,
-                           LikeRepository likeRepository, IdempotencyService idempotencyService,
-                           ApplicationEventPublisher eventPublisher) {
-        this(postRepository, commentRepository, likeRepository, idempotencyService, eventPublisher,
+                           LikeRepository likeRepository, IdempotencyService idempotencyService) {
+        this(postRepository, commentRepository, likeRepository, idempotencyService,
                 new EntityConverter(), new CurrentInstantSupplier());
     }
 
@@ -114,10 +107,7 @@ public class PostServiceImpl implements PostService {
             var entity = converter.fromDomain(request, currentTime.get());
             commentRepository.save(entity);
             post.getCommentCount().incrementAndGet();
-
-            var comment = converter.toDomain(entity);
-            eventPublisher.publishEvent(new CommentCreatedEvent(comment));
-            return comment;
+            return converter.toDomain(entity);
         });
     }
 

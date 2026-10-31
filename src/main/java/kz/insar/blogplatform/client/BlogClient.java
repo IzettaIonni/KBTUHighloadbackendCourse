@@ -6,7 +6,7 @@ import kz.insar.blogplatform.api.PostPageDTO;
 import org.springframework.lang.Nullable;
 
 /**
- * Same operations over REST (RestBlogClient) and WebSocket (WsBlogClient).
+ * Blog operations over REST (RestBlogClient).
  * Reads and likePost are always retried; createPost / createComment only with an idempotency key.
  */
 public interface BlogClient extends AutoCloseable {

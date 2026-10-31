@@ -2,7 +2,6 @@ package kz.insar.blogplatform.services.impl;
 
 import kz.insar.blogplatform.converters.EntityConverter;
 import kz.insar.blogplatform.domain.*;
-import kz.insar.blogplatform.domain.events.CommentCreatedEvent;
 import kz.insar.blogplatform.domain.exceptions.InvalidDataException;
 import kz.insar.blogplatform.domain.exceptions.ObjectNotFoundException;
 import kz.insar.blogplatform.repositories.CommentRepository;
@@ -16,7 +15,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,7 +32,6 @@ public class PostServiceImplTest {
     private CommentRepository commentRepositoryMock;
     private LikeRepository likeRepositoryMock;
     private IdempotencyService idempotencyServiceMock;
-    private ApplicationEventPublisher eventPublisherMock;
     private Supplier<Instant> currentTimeMock;
     private PostServiceImpl service;
 
@@ -50,10 +47,9 @@ public class PostServiceImplTest {
         commentRepositoryMock = control.createMock(CommentRepository.class);
         likeRepositoryMock = control.createMock(LikeRepository.class);
         idempotencyServiceMock = control.createMock(IdempotencyService.class);
-        eventPublisherMock = control.createMock(ApplicationEventPublisher.class);
         currentTimeMock = control.createMock(Supplier.class);
         service = new PostServiceImpl(postRepositoryMock, commentRepositoryMock, likeRepositoryMock,
-                idempotencyServiceMock, eventPublisherMock, new EntityConverter(), currentTimeMock);
+                idempotencyServiceMock, new EntityConverter(), currentTimeMock);
     }
 
     private static PostEntity postEntity(long id, String createdAt, long likes) {
@@ -76,19 +72,19 @@ public class PostServiceImplTest {
     @Test
     void testCtor_ShouldThrowNPEIfPostRepositoryMissing() {
         assertThrows(NullPointerException.class, () -> new PostServiceImpl(null, commentRepositoryMock,
-                likeRepositoryMock, idempotencyServiceMock, eventPublisherMock, new EntityConverter(), currentTimeMock));
+                likeRepositoryMock, idempotencyServiceMock, new EntityConverter(), currentTimeMock));
     }
 
     @Test
     void testCtor_ShouldThrowNPEIfIdempotencyServiceMissing() {
         assertThrows(NullPointerException.class, () -> new PostServiceImpl(postRepositoryMock, commentRepositoryMock,
-                likeRepositoryMock, null, eventPublisherMock, new EntityConverter(), currentTimeMock));
+                likeRepositoryMock, null, new EntityConverter(), currentTimeMock));
     }
 
     @Test
     void testCtor_ShouldThrowNPEIfCurrentTimeMissing() {
         assertThrows(NullPointerException.class, () -> new PostServiceImpl(postRepositoryMock, commentRepositoryMock,
-                likeRepositoryMock, idempotencyServiceMock, eventPublisherMock, new EntityConverter(), null));
+                likeRepositoryMock, idempotencyServiceMock, new EntityConverter(), null));
     }
 
     @Test
@@ -218,7 +214,7 @@ public class PostServiceImplTest {
     }
 
     @Test
-    void testCreateComment_ShouldIncrementCounterAndPublishEvent() {
+    void testCreateComment_ShouldIncrementCommentCount() {
         //given
         var user = UserId.of("u2");
         var post = postEntity(5L, "2026-10-30T20:30:20Z", 0);
@@ -230,8 +226,6 @@ public class PostServiceImplTest {
             entity.setCommentId(9L);
             return entity;
         });
-        eventPublisherMock.publishEvent((Object) anyObject(CommentCreatedEvent.class));
-        expectLastCall();
         control.replay();
         //when
         var actual = service.createComment(CommentCreate.builder()

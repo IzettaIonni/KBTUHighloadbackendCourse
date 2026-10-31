@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.ToDoubleFunction;
 
 /**
- * REST/JSON vs WebSocket on one server (same JVM), localhost.
- * Run: ./mvnw compile exec:java
+ * REST/JSON latency, throughput and payload size on one server (same JVM), localhost.
+ * Run: ./mvnw compile exec:java -Dexec.mainClass=kz.insar.blogplatform.bench.Bench
  */
 public class Bench {
 
@@ -35,11 +35,9 @@ public class Bench {
     static final int RUNS = 3;
     static final Path RESULTS_FILE = Path.of("results.md");
 
-    enum Protocol { REST, WebSocket }
-
     enum Scenario { getPost, listPosts, createComment }
 
-    record Measurement(Protocol protocol, Scenario scenario, int clients,
+    record Measurement(Scenario scenario, int clients,
                        double p50, double p95, double p99, double max, double rps,
                        double bodyBytes, double headerBytes, long errors) {
     }
@@ -79,12 +77,10 @@ public class Bench {
             List<Measurement> measurements = new ArrayList<>();
             for (Scenario scenario : Scenario.values()) {
                 for (int clients : CLIENTS) {
-                    for (Protocol protocol : Protocol.values()) {
-                        var m = bench.measure(protocol, scenario, clients);
-                        System.out.printf("  %-9s %-13s %2d clients: p50 %.3f ms, p99 %.3f ms, %.0f rps%n",
-                                protocol, scenario, clients, m.p50(), m.p99(), m.rps());
-                        measurements.add(m);
-                    }
+                    var m = bench.measure(scenario, clients);
+                    System.out.printf("  %-13s %2d clients: p50 %.3f ms, p99 %.3f ms, %.0f rps%n",
+                            scenario, clients, m.p50(), m.p99(), m.rps());
+                    measurements.add(m);
                 }
             }
             runs.add(measurements);
@@ -100,12 +96,10 @@ public class Bench {
         System.exit(0);
     }
 
-    Measurement measure(Protocol protocol, Scenario scenario, int clients) throws Exception {
+    Measurement measure(Scenario scenario, int clients) throws Exception {
         List<BlogClient> pool = new ArrayList<>();
         for (int i = 0; i < clients; i++) {
-            pool.add(protocol == Protocol.REST
-                    ? new RestBlogClient("http://localhost:" + port, httpClient, new RetryExecutor())
-                    : new WsBlogClient("ws://localhost:" + port + "/ws", httpClient, new RetryExecutor()));
+            pool.add(new RestBlogClient("http://localhost:" + port, httpClient, new RetryExecutor()));
         }
         try {
             load(pool, scenario, WARMUP_REQUESTS);
@@ -120,7 +114,7 @@ public class Bench {
             long requests = pool.stream().mapToLong(client -> client.getTraffic().getRequests()).sum();
             long body = pool.stream().mapToLong(client -> client.getTraffic().getBodyBytes()).sum();
             long headers = pool.stream().mapToLong(client -> client.getTraffic().getHeaderBytes()).sum();
-            return new Measurement(protocol, scenario, clients,
+            return new Measurement(scenario, clients,
                     millis(percentile(latencies, 0.50)), millis(percentile(latencies, 0.95)),
                     millis(percentile(latencies, 0.99)), millis(latencies[latencies.length - 1]),
                     latencies.length / seconds,
@@ -197,7 +191,7 @@ public class Bench {
             int index = i;
             var same = runs.stream().map(run -> run.get(index)).toList();
             var first = same.get(0);
-            result.add(new Measurement(first.protocol(), first.scenario(), first.clients(),
+            result.add(new Measurement(first.scenario(), first.clients(),
                     median(same, Measurement::p50), median(same, Measurement::p95),
                     median(same, Measurement::p99), median(same, Measurement::max),
                     median(same, Measurement::rps), median(same, Measurement::bodyBytes),
@@ -214,13 +208,13 @@ public class Bench {
 
     static String renderTable(List<Measurement> measurements) {
         var sb = new StringBuilder();
-        sb.append("| Scenario | Clients | Protocol | p50, ms | p95, ms | p99, ms | max, ms | RPS "
-                + "| Body, B/req | Headers, B/req | Total, B/req | Errors |\n");
-        sb.append("|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+        sb.append("| Scenario | Clients | p50, ms | p95, ms | p99, ms | max, ms | RPS "
+                + "| Body, B/req | Headers (est.), B/req | Total, B/req | Errors |\n");
+        sb.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
         for (var m : measurements) {
-            sb.append(String.format(Locale.ROOT, "| %s | %d | %s | %.3f | %.3f | %.3f | %.3f | %.0f | %.0f | %.0f%s | %.0f | %d |%n",
-                    m.scenario(), m.clients(), m.protocol(), m.p50(), m.p95(), m.p99(), m.max(), m.rps(),
-                    m.bodyBytes(), m.headerBytes(), m.protocol() == Protocol.REST ? " (est.)" : "",
+            sb.append(String.format(Locale.ROOT, "| %s | %d | %.3f | %.3f | %.3f | %.3f | %.0f | %.0f | %.0f | %.0f | %d |%n",
+                    m.scenario(), m.clients(), m.p50(), m.p95(), m.p99(), m.max(), m.rps(),
+                    m.bodyBytes(), m.headerBytes(),
                     m.bodyBytes() + m.headerBytes(), m.errors()));
         }
         return sb.toString();
@@ -233,10 +227,9 @@ public class Bench {
                 + "- Server and clients in one JVM, localhost. " + SEED_POSTS + " seeded posts.\n"
                 + "- Per scenario: " + WARMUP_REQUESTS + " warm-up requests, then " + MEASURED_REQUESTS
                 + " measured requests split between the clients. Median of " + RUNS + " runs.\n"
-                + "- REST: HTTP/1.1 keep-alive, `java.net.http.HttpClient`. WebSocket: one connection per client.\n"
-                + "- Body: request body + response body (REST), or request + response text frame payloads (WebSocket).\n"
-                + "- Headers: REST is an estimate (request line + headers sent by HttpClient + status line + response headers);"
-                + " WebSocket is the exact frame header size (2-4 bytes, +4 bytes mask on client frames).\n\n"
+                + "- REST: HTTP/1.1 keep-alive, `java.net.http.HttpClient`.\n"
+                + "- Body: request body + response body.\n"
+                + "- Headers: an estimate (request line + headers sent by HttpClient + status line + response headers).\n\n"
                 + table;
     }
 

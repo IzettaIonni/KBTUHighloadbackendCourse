@@ -4,7 +4,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NonNull;
 
 /**
- * User stub: taken from the X-User-Id header (REST) or the "user" field (WebSocket).
+ * User stub: taken from the X-User-Id header.
  */
 @EqualsAndHashCode
 public class UserId {

@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Same error shape for REST bodies and WebSocket "error" field.
+ * Error body of every non-2xx response.
  * Codes: invalid, not_found, key_reuse, unavailable, internal.
  */
 @Data

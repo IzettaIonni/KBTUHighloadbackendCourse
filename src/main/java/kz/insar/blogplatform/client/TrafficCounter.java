@@ -4,8 +4,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Bytes on the wire per client, for the benchmark.
- * body: request body + response body (REST) or text frame payloads (WebSocket).
- * headers: HTTP headers, estimated (REST) or WebSocket frame headers, exact.
+ * body: request body + response body.
+ * headers: HTTP headers, estimated.
  */
 public class TrafficCounter {
     private final AtomicLong requests = new AtomicLong();
